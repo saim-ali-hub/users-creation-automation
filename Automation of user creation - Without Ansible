@@ -1,0 +1,356 @@
+MANGING AUTOMATION OF USER CREATION - WITHOUT ANSIBLE
+If you don't want to use Ansible, I would actually recommend a Python-based onboarding tool. Since all three systems (cPanel, Active Directory, and Zoom) expose APIs or automation interfaces, Python is a good fit.
+Recommended Directory Structure
+user_onboarding/
+│
+├── users.csv
+│
+├── config/
+│   ├── cpanel.conf
+│   ├── zoom.conf
+│   └── smtp.conf
+│
+├── scripts/
+│   ├── generate_users.py
+│   ├── create_cpanel.py
+│   ├── create_zoom.py
+│   ├── create_ad.ps1
+│   ├── send_email.py
+│   └── onboard.py
+│
+├── reports/
+│   └── created_users.csv
+│
+└── logs/
+    └── onboarding.log
+________________________________________
+Step 1: Create users.csv
+FullName,PersonalEmail
+Sajjad Shafiq,sajroman@gmail.com
+Khawar Abbas,khawarjora@gmail.com
+Usman Bhatti,usmanbh3@gmail.com
+Hamza Sahi Bashir,sahihamzab@gmail.com
+________________________________________
+Step 2: Generate Usernames
+generate_users.py
+import csv
+
+with open('users.csv') as f:
+    users=list(csv.DictReader(f))
+
+for user in users:
+
+    username=user['FullName'].lower().replace(" ",".")
+
+    print(f"""
+Name: {user['FullName']}
+Username: {username}
+Mailbox: {username}@linoop.us
+AD: {username}@corp.linoop.us
+Zoom: {username}@linoop.us
+""")
+________________________________________
+Step 3: Create cPanel Mailboxes
+Store configuration:
+config/cpanel.conf
+[cpanel]
+server=100.125.194.89
+token=YOUR_TOKEN
+domain=linoop.us
+Example API call:
+import requests
+
+url="https://100.125.194.89:2083/execute/Email/add_pop"
+
+payload={
+    "email":"sajjad.shafiq",
+    "domain":"linoop.us",
+    "password":"Welcome@123",
+    "quota":"1024"
+}
+
+headers={
+    "Authorization":"cpanel root:TOKEN"
+}
+
+r=requests.post(
+    url,
+    headers=headers,
+    data=payload,
+    verify=False
+)
+
+print(r.json())
+Loop through the CSV and create all mailboxes.
+________________________________________
+Step 4: Create Active Directory Users
+If AD is on Windows, PowerShell is usually easier than Python.
+create_ad.ps1
+Import-Csv users.csv | ForEach-Object {
+
+    $username = $_.FullName.ToLower().Replace(" ",".")
+
+    $password = ConvertTo-SecureString `
+      "Welcome@123" `
+      -AsPlainText `
+      -Force
+
+    New-ADUser `
+      -Name $_.FullName `
+      -SamAccountName $username `
+      -UserPrincipalName "$username@corp.linoop.us" `
+      -AccountPassword $password `
+      -Enabled $true `
+      -ChangePasswordAtLogon $true
+}
+Run:
+.\create_ad.ps1
+________________________________________
+Step 5: Create Zoom Accounts
+Create a Server-to-Server OAuth app in Zoom.
+create_zoom.py
+import requests
+
+headers={
+  "Authorization":"Bearer TOKEN"
+}
+
+payload={
+    "action":"create",
+    "user_info":{
+        "email":"sajjad.shafiq@linoop.us",
+        "type":1,
+        "first_name":"Sajjad",
+        "last_name":"Shafiq"
+    }
+}
+
+requests.post(
+    "https://api.zoom.us/v2/users",
+    json=payload,
+    headers=headers
+)
+Loop through all users.
+________________________________________
+Step 6: Send Welcome Email
+send_email.py
+import smtplib
+from email.message import EmailMessage
+
+msg=EmailMessage()
+
+msg["Subject"]="LINOOP Account Details"
+
+msg["From"]="admin@linoop.us"
+
+msg["To"]="sajroman@gmail.com"
+
+msg.set_content("""
+Mailbox:
+sajjad.shafiq@linoop.us
+
+AD:
+sajjad.shafiq@corp.linoop.us
+
+Zoom:
+sajjad.shafiq@linoop.us
+
+Password:
+Welcome@123
+""")
+
+smtp=smtplib.SMTP("smtp.linoop.us",587)
+smtp.send_message(msg)
+smtp.quit()
+________________________________________
+Step 7: Master Script
+onboard.py
+import subprocess
+
+subprocess.run(["python3","generate_users.py"])
+
+subprocess.run(["python3","create_cpanel.py"])
+
+subprocess.run([
+    "powershell",
+    "./create_ad.ps1"
+])
+
+subprocess.run(["python3","create_zoom.py"])
+
+subprocess.run(["python3","send_email.py"])
+Run:
+python3 onboard.py
+________________________________________
+Even Simpler Approach
+For only 17 users, you could:
+1.	Keep everything in a single CSV. 
+2.	Write one Python script. 
+3.	The script: 
+o	Reads CSV 
+o	Generates usernames 
+o	Generates random passwords 
+o	Creates cPanel mailbox via API 
+o	Creates Zoom user via API 
+o	Writes a CSV report 
+4.	Export a second CSV for AD and import it with a PowerShell script. 
+This "Python + PowerShell" approach is often simpler to maintain than Ansible when the task is user onboarding rather than server configuration management.
+
+
+
+
+
+
+
+Would this approach work if I have 150 users.
+Yes, absolutely. For 150 users, a Python-based onboarding system is actually more practical than manually creating accounts and scales very well.
+However, once you get into 150+ users, I'd recommend making a few improvements instead of using the simple scripts I showed earlier.
+What Changes for 150 Users?
+Instead of:
+users.csv
+      ↓
+Create User
+      ↓
+Next User
+Build:
+users.csv
+      ↓
+Validation
+      ↓
+Username Generation
+      ↓
+Password Generation
+      ↓
+Create Mailbox
+      ↓
+Create AD Account
+      ↓
+Create Zoom Account
+      ↓
+Generate Report
+      ↓
+Send Welcome Email
+________________________________________
+Use a Master CSV
+Example:
+FullName,PersonalEmail,Department
+Sajjad Shafiq,sajroman@gmail.com,IT
+Khawar Abbas,khawarjora@gmail.com,IT
+Usman Bhatti,usmanbh3@gmail.com,Support
+The CSV becomes your source of truth.
+________________________________________
+Generate a Report
+For 150 users you'll want:
+FullName,Username,Mailbox,AD,Zoom,Status
+Sajjad Shafiq,sajjad.shafiq,Created,Created,Created,Success
+Khawar Abbas,khawar.abbas,Created,Failed,Created,Partial
+This helps identify failures and rerun only the failed accounts.
+________________________________________
+Implement Logging
+Create:
+logs/onboarding.log
+Example:
+2026-05-29 10:15:01
+Created cPanel mailbox:
+sajjad.shafiq@linoop.us
+
+2026-05-29 10:15:05
+Created AD user:
+sajjad.shafiq@corp.linoop.us
+If user #89 fails, you can see exactly where.
+________________________________________
+Handle Duplicate Names
+With 150 users, duplicates become likely.
+Example:
+Muhammad Ali
+Muhammad Ali
+Instead of:
+muhammad.ali
+muhammad.ali
+Automatically generate:
+muhammad.ali
+muhammad.ali1
+or
+muhammad.ali
+muhammad.ali2
+________________________________________
+Generate Strong Passwords
+Don't use:
+Welcome@123
+Use something like:
+Xk9!Lm7#Qa2P
+Store it in the report.
+Example:
+Username,Password
+sajjad.shafiq,Xk9!Lm7#Qa2P
+Protect this file carefully.
+________________________________________
+Use Retry Logic
+For APIs:
+for attempt in range(3):
+    try:
+        create_zoom_user()
+        break
+    except:
+        time.sleep(5)
+If Zoom or cPanel has a temporary issue, the script retries automatically.
+________________________________________
+Send Emails at the End
+Bad:
+Create User
+Send Email
+
+Create User
+Send Email
+Better:
+Create All Users
+Generate Report
+Verify Success
+Send Emails
+This avoids emailing credentials for accounts that failed to provision completely.
+________________________________________
+Suggested Structure for 150+ Users
+user_onboarding/
+
+├── data/
+│   └── users.csv
+│
+├── reports/
+│   ├── success.csv
+│   ├── failed.csv
+│   └── passwords.csv
+│
+├── logs/
+│   └── onboarding.log
+│
+├── config/
+│   ├── cpanel.ini
+│   ├── zoom.ini
+│   ├── smtp.ini
+│   └── ad.ini
+│
+├── modules/
+│   ├── username_generator.py
+│   ├── password_generator.py
+│   ├── cpanel.py
+│   ├── zoom.py
+│   ├── reporting.py
+│   └── emailer.py
+│
+└── onboard.py
+________________________________________
+What I Would Do in Your Environment
+Since you have:
+•	cPanel server (100.125.194.89) 
+•	Active Directory 
+•	Zoom 
+•	Around 17 users now, potentially 150+ later 
+I'd build:
+1.	One master CSV. 
+2.	One Python onboarding script. 
+3.	One PowerShell AD script (or Python using LDAP if preferred). 
+4.	Success/failure reports. 
+5.	Email notifications. 
+That solution can comfortably handle 150, 500, or even several thousand users with only minor changes, provided the target systems (AD, cPanel, Zoom) can accept the provisioning rate.
+
+
