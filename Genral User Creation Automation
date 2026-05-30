@@ -1,0 +1,168 @@
+Genral User Creation Automation:
+This is list of users. Sajjad Shafiq sajroman@gmail.com Khawar Abbas khawarjora@gmail.com Usman Bhatti usmanbh3@gmail.com Hamza Sahi Bashir sahihamzab@gmail.com Danial Ahmed danialahmed3210@gmail.com Khadeeja Rafiique (pak) khadeejas766@gmail.com Fareeha Qayum (pak) freehaqayyum7@gmail.com Roha Maryyam Iqbal rohamaryyamp@gmail.com Awais Ahmed aahme498@gmail.com salman duggal (pak) salman.duggal@gmail.com Zoya Khan zjaved020@gmail.com Babar Temoor (free) btemoor@outlook.com Waqar Zahoor waqar.zahoor86@gmail.com Sana Abbasi sk.sanakhurram@gmail.com Saeed Anwar (free) saeedanwarlinux@gmail.com Aqsa Mian mian.aqsa1995@gmail.com Muhammad Annam mohamedanaam85@gmail.com I want to create users This is server IP 100.125.194.89: 56 create * cPanel mailbox: username@linoop.us * AD user: username@corp.linoop.us * Zoom user: username@linoop.us for example Sajjad Shafiq | username sajjad.shafiq | mailbox sajjad.shafiq@linoop.us | AD sajjad.shafiq@corp.linoop.us | Zoom sajjad.shafiq@linoop.us | personal sajroman@gmail.com can you guide me how can we automate this user creation.
+Yes. Since you already have a structured list of users, this can be automated quite easily.
+
+Option 1: Generate a CSV and Import into Multiple Systems (Recommended)
+Create a master CSV like this:
+Full Name	Username	Mailbox	AD User	Zoom User	Personal Email
+Sajjad Shafiq	sajjad.shafiq	sajjad.shafiq@linoop.us	sajjad.shafiq@corp.linoop.us	sajjad.shafiq@linoop.us	sajroman@gmail.com
+Khawar Abbas	khawar.abbas	khawar.abbas@linoop.us	khawar.abbas@corp.linoop.us	khawar.abbas@linoop.us	khawarjora@gmail.com
+Then:
+1.	Bulk create AD users using PowerShell. 
+2.	Bulk create cPanel email accounts using cPanel API. 
+3.	Bulk invite Zoom users using Zoom API. 
+4.	Email credentials to their personal email addresses. 
+________________________________________
+Step 1: Generate CSV Automatically
+Save your user list in users.txt:
+Sajjad Shafiq,sajroman@gmail.com
+Khawar Abbas,khawarjora@gmail.com
+Usman Bhatti,usmanbh3@gmail.com
+Hamza Sahi Bashir,sahihamzab@gmail.com
+Python script:
+import csv
+
+with open("users.txt") as f:
+    users = [line.strip().split(",") for line in f]
+
+with open("linoop_users.csv","w",newline="") as out:
+    writer = csv.writer(out)
+
+    writer.writerow([
+        "Full Name",
+        "Username",
+        "Mailbox",
+        "AD User",
+        "Zoom User",
+        "Personal Email"
+    ])
+
+    for fullname,email in users:
+
+        username = fullname.lower().replace(" ",".")
+
+        writer.writerow([
+            fullname,
+            username,
+            f"{username}@linoop.us",
+            f"{username}@corp.linoop.us",
+            f"{username}@linoop.us",
+            email
+        ])
+Output:
+Full Name,Username,Mailbox,AD User,Zoom User,Personal Email
+Sajjad Shafiq,sajjad.shafiq,sajjad.shafiq@linoop.us,sajjad.shafiq@corp.linoop.us,sajjad.shafiq@linoop.us,sajroman@gmail.com
+Khawar Abbas,khawar.abbas,khawar.abbas@linoop.us,khawar.abbas@corp.linoop.us,khawar.abbas@linoop.us,khawarjora@gmail.com
+________________________________________
+Step 2: Bulk Create Active Directory Users
+On the AD server:
+Import-Csv C:\Temp\linoop_users.csv | ForEach-Object {
+
+    $Password = ConvertTo-SecureString "Welcome@123" -AsPlainText -Force
+
+    New-ADUser `
+        -Name $_."Full Name" `
+        -SamAccountName $_.Username `
+        -UserPrincipalName $_."AD User" `
+        -EmailAddress $_.Mailbox `
+        -AccountPassword $Password `
+        -Enabled $true `
+        -ChangePasswordAtLogon $true
+}
+________________________________________
+Step 3: Bulk Create cPanel Mailboxes
+Your server:
+100.125.194.89:2053
+Generate API calls:
+while IFS=',' read fullname username mailbox ad zoom personal
+do
+
+curl -k -u root:CPANEL_API_TOKEN \
+"https://100.125.194.89:2083/execute/Email/add_pop?email=$username&domain=linoop.us&password=Welcome@123&quota=1024"
+
+done < users.csv
+Or use WHM API.
+________________________________________
+Step 4: Bulk Create Zoom Users
+Create a Zoom JWT/OAuth app.
+Python:
+import requests
+
+headers = {
+    "Authorization": "Bearer YOUR_TOKEN"
+}
+
+payload = {
+    "action":"create",
+    "user_info":{
+        "email":"sajjad.shafiq@linoop.us",
+        "type":1,
+        "first_name":"Sajjad",
+        "last_name":"Shafiq"
+    }
+}
+
+requests.post(
+    "https://api.zoom.us/v2/users",
+    json=payload,
+    headers=headers
+)
+Loop through CSV and create all users.
+________________________________________
+Step 5: Send Welcome Email Automatically
+Using SMTP:
+from email.message import EmailMessage
+import smtplib
+
+msg = EmailMessage()
+
+msg["Subject"] = "Your LINOOP Accounts"
+
+msg["From"] = "admin@linoop.us"
+
+msg["To"] = "sajroman@gmail.com"
+
+msg.set_content("""
+Hello Sajjad,
+
+Mailbox:
+sajjad.shafiq@linoop.us
+
+AD:
+sajjad.shafiq@corp.linoop.us
+
+Zoom:
+sajjad.shafiq@linoop.us
+
+Temporary Password:
+Welcome@123
+
+Please change your password after first login.
+""")
+
+smtp = smtplib.SMTP("mail.linoop.us",587)
+smtp.send_message(msg)
+smtp.quit()
+________________________________________
+
+Even Better: Use Ansible
+Since you're already familiar with Ansible, I would maintain a YAML inventory like:
+users:
+  - fullname: Sajjad Shafiq
+    username: sajjad.shafiq
+    personal_email: sajroman@gmail.com
+
+  - fullname: Khawar Abbas
+    username: khawar.abbas
+    personal_email: khawarjora@gmail.com
+Then a single playbook can:
+1.	Create AD accounts. 
+2.	Create cPanel mailboxes via API. 
+3.	Create Zoom users via API. 
+4.	Generate random passwords. 
+5.	Send welcome emails. 
+6.	Produce a final report. 
+For 17 users, the entire provisioning process can be reduced to running:
+ansible-playbook onboard_users.yml
+and have all three account types created automatically.
+
