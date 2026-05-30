@@ -1,0 +1,347 @@
+Web dashboard for HR upload. 
+For HR users, I'd build a very simple web portal rather than asking them to edit CSV files manually.
+High-Level Architecture
+                HR User
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │   Web Dashboard     │
+        │     (FastAPI)       │
+        └──────────┬──────────┘
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │ Upload CSV / XLSX   │
+        └──────────┬──────────┘
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │ Validation Engine   │
+        └──────────┬──────────┘
+                   │
+           Valid   │   Invalid
+                   │
+        ┌──────────▼──────────┐
+        │ Onboarding Queue    │
+        └──────────┬──────────┘
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │ Provisioning Engine │
+        └──────┬─────┬────────┘
+               │     │
+               │     │
+               ▼     ▼
+          cPanel    AD
+               │
+               ▼
+             Zoom
+
+                   │
+                   ▼
+        ┌─────────────────────┐
+        │ Reports & Status    │
+        └─────────────────────┘
+________________________________________
+Directory Structure
+onboarding-portal/
+
+├── app/
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   │
+│   ├── routes/
+│   │   ├── upload.py
+│   │   ├── dashboard.py
+│   │   ├── jobs.py
+│   │   └── reports.py
+│   │
+│   ├── services/
+│   │   ├── validator.py
+│   │   ├── onboarding.py
+│   │   ├── cpanel.py
+│   │   ├── zoom.py
+│   │   ├── emailer.py
+│   │   └── report.py
+│   │
+│   ├── templates/
+│   │   ├── dashboard.html
+│   │   ├── upload.html
+│   │   ├── status.html
+│   │   └── report.html
+│   │
+│   └── static/
+│       ├── css/
+│       └── js/
+│
+├── uploads/
+├── reports/
+├── logs/
+├── database/
+│   └── onboarding.db
+│
+├── requirements.txt
+└── run.sh
+________________________________________
+Dashboard Features
+1. Upload Users
+HR uploads:
+FullName,PersonalEmail,Department
+Sajjad Shafiq,sajroman@gmail.com,IT
+Khawar Abbas,khawarjora@gmail.com,IT
+or
+employees.xlsx
+through browser.
+________________________________________
+2. Validation Screen
+Before creating users:
+✓ 147 users valid
+
+⚠ 2 duplicate usernames
+
+⚠ 1 invalid email
+
+✗ 1 missing department
+HR fixes errors before proceeding.
+________________________________________
+3. Preview Screen
+Show exactly what will be created:
+Name	Username	Mailbox	AD
+Sajjad Shafiq	sajjad.shafiq	sajjad.shafiq@linoop.us	sajjad.shafiq@corp.linoop.us
+Button:
+Start Onboarding
+________________________________________
+4. Live Progress
+Processing...
+
+[##########----------] 65%
+
+97 / 150 Users Completed
+Status table:
+User	Mailbox	AD	Zoom
+Sajjad	✓	✓	✓
+Khawar	✓	✓	Pending
+________________________________________
+5. Download Reports
+Generated automatically:
+success.csv
+failed.csv
+credentials.csv
+HR can download them.
+________________________________________
+Database Schema
+Use SQLite initially.
+jobs table
+CREATE TABLE jobs (
+
+id INTEGER PRIMARY KEY,
+
+filename TEXT,
+
+uploaded_by TEXT,
+
+status TEXT,
+
+created_at DATETIME
+);
+________________________________________
+users table
+CREATE TABLE users (
+
+id INTEGER PRIMARY KEY,
+
+job_id INTEGER,
+
+fullname TEXT,
+
+username TEXT,
+
+mailbox TEXT,
+
+ad_user TEXT,
+
+zoom_user TEXT,
+
+status TEXT
+);
+________________________________________
+FastAPI Upload Endpoint
+routes/upload.py
+from fastapi import APIRouter, UploadFile
+
+router = APIRouter()
+
+@router.post("/upload")
+async def upload(file: UploadFile):
+
+    path = f"uploads/{file.filename}"
+
+    with open(path, "wb") as f:
+        f.write(await file.read())
+
+    return {
+        "status": "uploaded"
+    }
+________________________________________
+HTML Upload Page
+templates/upload.html
+<!DOCTYPE html>
+<html>
+
+<body>
+
+<h2>Employee Onboarding</h2>
+
+<form action="/upload"
+      method="post"
+      enctype="multipart/form-data">
+
+    <input type="file"
+           name="file">
+
+    <button type="submit">
+        Upload
+    </button>
+
+</form>
+
+</body>
+</html>
+________________________________________
+Dashboard Home
+templates/dashboard.html
+<h1>LINOOP User Onboarding</h1>
+
+<div>
+
+    Total Jobs: 12
+
+</div>
+
+<div>
+
+    Users Created: 1540
+
+</div>
+
+<div>
+
+    Failed Users: 3
+
+</div>
+
+<a href="/upload">
+
+Upload New File
+
+</a>
+________________________________________
+Authentication
+At minimum:
+HR Login
+username: hr
+password: ********
+Using:
+•	FastAPI Users 
+•	LDAP 
+•	Active Directory authentication 
+Preferred:
+Use your existing AD.
+Employees log in with:
+john.doe@corp.linoop.us
+No separate accounts required.
+________________________________________
+Workflow for HR
+1.	Login. 
+2.	Upload Excel file. 
+3.	Review validation results. 
+4.	Click "Start Onboarding". 
+5.	System creates: 
+o	Mailbox 
+o	AD account 
+o	Zoom account 
+6.	System emails credentials. 
+7.	HR downloads reports. 
+Total HR effort:
+Upload file
+↓
+Click button
+↓
+Wait
+↓
+Download report
+________________________________________
+Future Enhancements
+You could add:
+•	Department-based AD OU assignment. 
+•	Department-based Zoom groups. 
+•	Microsoft 365 provisioning. 
+•	Slack provisioning. 
+•	Google Workspace provisioning. 
+•	Automatic manager assignment. 
+•	Welcome email templates. 
+•	Offboarding portal. 
+•	Role-based access control. 
+•	Approval workflow (HR → Manager → IT). 
+For your environment, a stack based on FastAPI + SQLite + Bootstrap + Python provisioning modules would be lightweight, easy to maintain, and capable of handling well beyond 150 users.
+
+
+Dashboard Enhancement on Adding Slack
+Add page:
+Slack Invitations
+Example:
+User	Email	Channel	Status
+Sajjad	sajjad.shafiq@linoop.us	it-team	Pending
+Khawar	khawar.abbas@linoop.us	it-team	Pending
+________________________________________
+HR Workflow
+Upload:
+FullName,PersonalEmail,Department
+
+Sajjad Shafiq,sajroman@gmail.com,IT
+Khawar Abbas,khawarjora@gmail.com,IT
+System automatically generates:
+Username:
+sajjad.shafiq
+
+Mailbox:
+sajjad.shafiq@linoop.us
+
+AD:
+sajjad.shafiq@corp.linoop.us
+
+Zoom:
+sajjad.shafiq@linoop.us
+
+Slack:
+sajjad.shafiq@linoop.us
+________________________________________
+Welcome Email Enhancement
+Add Slack details:
+Slack Workspace:
+linoop.slack.com
+
+Slack Email:
+sajjad.shafiq@linoop.us
+
+Assigned Channel:
+#it-team
+________________________________________
+If You Upgrade Slack Later
+You only replace:
+modules/slack.py
+Current:
+Generate Invite CSV
+Future:
+Call Slack API
+Create User
+Assign Channels
+Send Invite
+No changes needed to:
+•	Dashboard 
+•	Database 
+•	Reports 
+•	HR workflow 
+•	Upload process
+
