@@ -1,0 +1,307 @@
+Automation of User Creation – Anisble Project:
+Project Structure
+user_onboarding/
+│
+├── inventory/
+│   └── hosts.yml
+│
+├── group_vars/
+│   └── all.yml
+│
+├── vars/
+│   └── users.yml
+│
+├── templates/
+│   └── welcome_email.j2
+│
+├── files/
+│   └── users.csv
+│
+├── roles/
+│   ├── generate_accounts/
+│   │   └── tasks/
+│   │       └── main.yml
+│   │
+│   ├── cpanel_mailbox/
+│   │   └── tasks/
+│   │       └── main.yml
+│   │
+│   ├── active_directory/
+│   │   └── tasks/
+│   │       └── main.yml
+│   │
+│   ├── zoom_users/
+│   │   └── tasks/
+│   │       └── main.yml
+│   │
+│   └── email_notification/
+│       └── tasks/
+│           └── main.yml
+│
+├── reports/
+│
+└── onboard_users.yml
+________________________________________
+Phase 1 - Create User Database
+Create:
+vars/users.yml
+Example:
+users:
+
+  - fullname: Sajjad Shafiq
+    personal_email: sajroman@gmail.com
+
+  - fullname: Khawar Abbas
+    personal_email: khawarjora@gmail.com
+
+  - fullname: Usman Bhatti
+    personal_email: usmanbh3@gmail.com
+
+  - fullname: Hamza Sahi Bashir
+    personal_email: sahihamzab@gmail.com
+This becomes your master user list.
+________________________________________
+Phase 2 - Generate Usernames
+Role:
+roles/generate_accounts/tasks/main.yml
+- name: Generate account details
+  set_fact:
+    processed_users: "{{ processed_users | default([]) + [ {
+
+      'fullname': item.fullname,
+      'personal_email': item.personal_email,
+
+      'username':
+      item.fullname
+      | lower
+      | replace(' ','.'),
+
+      'mailbox':
+      (item.fullname
+      | lower
+      | replace(' ','.'))
+      ~ '@linoop.us',
+
+      'ad_user':
+      (item.fullname
+      | lower
+      | replace(' ','.'))
+      ~ '@corp.linoop.us',
+
+      'zoom_user':
+      (item.fullname
+      | lower
+      | replace(' ','.'))
+      ~ '@linoop.us'
+
+    } ] }}"
+  loop: "{{ users }}"
+Result:
+processed_users:
+
+  - fullname: Sajjad Shafiq
+    username: sajjad.shafiq
+    mailbox: sajjad.shafiq@linoop.us
+    ad_user: sajjad.shafiq@corp.linoop.us
+    zoom_user: sajjad.shafiq@linoop.us
+________________________________________
+Phase 3 - Generate Passwords
+Add:
+password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=12') }}"
+Example:
+Welcome@123
+or random:
+xD4$9LmP7Qw2
+________________________________________
+Phase 4 - Create cPanel Mailboxes
+First create API Token in WHM.
+Login to WHM:
+Development
+    Manage API Tokens
+Create:
+ansible-token
+Save token.
+________________________________________
+Role:
+roles/cpanel_mailbox/tasks/main.yml
+Example:
+- name: Create mailbox
+  uri:
+
+    url: >-
+      https://100.125.194.89:2083/execute/Email/add_pop
+
+    method: POST
+
+    validate_certs: false
+
+    headers:
+      Authorization: "cpanel root:{{ cpanel_api_token }}"
+
+    body_format: form-urlencoded
+
+    body:
+
+      email: "{{ item.username }}"
+      domain: linoop.us
+      password: "{{ item.password }}"
+      quota: 1024
+
+  loop: "{{ processed_users }}"
+________________________________________
+Phase 5 - Create Active Directory Users
+You'll need a Windows server with:
+RSAT-AD-PowerShell
+installed.
+Inventory:
+windows:
+  hosts:
+    dc01:
+      ansible_host: 10.0.0.10
+Role:
+roles/active_directory/tasks/main.yml
+- name: Create AD users
+  win_domain_user:
+
+    name: "{{ item.username }}"
+
+    upn: "{{ item.ad_user }}"
+
+    password: "{{ item.password }}"
+
+    email: "{{ item.mailbox }}"
+
+    enabled: yes
+
+    password_never_expires: no
+
+  loop: "{{ processed_users }}"
+________________________________________
+Phase 6 - Create Zoom Users
+Create:
+Zoom Server-to-Server OAuth App
+Get:
+Account ID
+Client ID
+Client Secret
+Role:
+roles/zoom_users/tasks/main.yml
+- name: Create Zoom user
+  uri:
+
+    url: https://api.zoom.us/v2/users
+
+    method: POST
+
+    headers:
+      Authorization: "Bearer {{ zoom_access_token }}"
+
+    body_format: json
+
+    body:
+
+      action: create
+
+      user_info:
+
+        email: "{{ item.zoom_user }}"
+
+        type: 1
+
+        first_name: "{{ item.fullname.split()[0] }}"
+
+        last_name: "{{ item.fullname.split()[-1] }}"
+
+  loop: "{{ processed_users }}"
+________________________________________
+Phase 7 - Welcome Email
+Template:
+templates/welcome_email.j2
+Hello {{ fullname }}
+
+Your accounts have been created.
+
+Mailbox:
+{{ mailbox }}
+
+AD:
+{{ ad_user }}
+
+Zoom:
+{{ zoom_user }}
+
+Password:
+{{ password }}
+
+Please change your password immediately.
+________________________________________
+Role:
+roles/email_notification/tasks/main.yml
+- name: Send email
+  mail:
+
+    host: smtp.linoop.us
+
+    port: 587
+
+    username: admin@linoop.us
+
+    password: "{{ smtp_password }}"
+
+    to: "{{ item.personal_email }}"
+
+    subject: LINOOP Account Information
+
+    body: "{{ lookup('template','welcome_email.j2') }}"
+
+  loop: "{{ processed_users }}"
+________________________________________
+Phase 8 - Create Report
+Create:
+reports/user_report.csv
+Task:
+- lineinfile:
+
+    path: reports/user_report.csv
+
+    create: yes
+
+    line: >-
+      {{ item.fullname }},
+      {{ item.username }},
+      {{ item.mailbox }},
+      {{ item.ad_user }},
+      {{ item.zoom_user }}
+
+  loop: "{{ processed_users }}"
+________________________________________
+Main Playbook
+---
+- hosts: localhost
+
+  gather_facts: false
+
+  vars_files:
+    - vars/users.yml
+
+  roles:
+
+    - generate_accounts
+    - cpanel_mailbox
+    - active_directory
+    - zoom_users
+    - email_notification
+________________________________________
+Suggested Execution Order
+1.	Create a WHM API token on your cPanel server. 
+2.	Create a Zoom Server-to-Server OAuth application. 
+3.	Verify WinRM connectivity to your AD server. 
+4.	Test creating one user only (e.g., Sajjad Shafiq). 
+5.	Verify: 
+o	Mailbox created 
+o	AD account created 
+o	Zoom invitation sent 
+6.	Run against all 17 users. 
+7.	Generate a CSV report and archive it for future onboarding audits. 
+This approach scales well—whether you're onboarding 17 users or 500 users, you only update vars/users.yml and rerun the playbook.
+
